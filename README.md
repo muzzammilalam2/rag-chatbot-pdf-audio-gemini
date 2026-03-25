@@ -119,6 +119,19 @@ docker compose up --build
 - Open WebUI: `http://localhost:3000`
 - API health: `http://localhost:8000/health`
 
+## 7) Agent mode (tool switching)
+
+By default (via `docker-compose.yml`), the API runs with an **agent layer** enabled (`RAG_AGENT=true`).
+
+What it does:
+- **Autonomous tool selection**: chooses tools like `knowledge_search`, `list_directory`, `file_inspector`, `code_analyzer`, `summarize_text`
+- **Final synthesis**: produces an answer + **Sources**
+- **Self-evaluation**: returns a 0.0–1.0 score (and includes a short "Agent" footer in the chat)
+
+Controls:
+- Disable agent mode: set `RAG_AGENT=false`
+- Hide sources: set `RAG_SHOW_SOURCES=false`
+
 ### Start (no Docker)
 
 ```bash

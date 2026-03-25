@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .llm import answer_question
 from .vectorstore import open_store, query
+from .agent import RagAgent
 
 
 load_dotenv()
@@ -30,6 +31,7 @@ COLLECTION = os.environ.get("RAG_COLLECTION", "genai_databases")
 TOP_K = int(os.environ.get("RAG_TOP_K", "6"))
 MODEL_ID = os.environ.get("RAG_MODEL_ID", "rag-gemini")
 SHOW_SOURCES = os.environ.get("RAG_SHOW_SOURCES", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
+AGENT_ENABLED = os.environ.get("RAG_AGENT", "false").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 app = FastAPI(title="RAG OpenAI-Compatible API", version="0.1.0")
@@ -164,21 +166,71 @@ async def chat_completions(request: Request) -> dict[str, Any]:
         logger.warning("chat.completions: missing user message. payload keys=%s", sorted(payload.keys()))
         raise HTTPException(status_code=400, detail="No user message found in 'messages'.")
 
-    store = open_store(DB_DIR, COLLECTION)
-    res = query(store, question, top_k=TOP_K)
-    docs = (res.get("documents") or [[]])[0]
-    metas = (res.get("metadatas") or [[]])[0]
-    context_chunks = [d for d in docs if d]
+    metas: list[dict] = []
+    agent_meta: dict[str, Any] | None = None
 
-    if not context_chunks:
-        content = "I don't know. No relevant context was found in the vector DB."
-    else:
+    if AGENT_ENABLED:
         try:
-            content = answer_question(question=question, context_chunks=context_chunks)
+            agent = RagAgent(db_dir=DB_DIR, collection=COLLECTION, top_k=TOP_K)
+            out = agent.answer(question=question)
+            content = (out.get("answer") or "").strip()
+            metas = out.get("sources") or []
+            agent_meta = {
+                "plan": out.get("plan"),
+                "tools_used": out.get("tools_used"),
+                "judge": out.get("judge"),
+                "metrics": out.get("metrics"),
+            }
         except Exception as e:
-            logger.exception("LLM call failed")
-            raise HTTPException(status_code=500, detail=f"LLM call failed: {type(e).__name__}")
+            logger.exception("Agent failed")
+            err = str(e)
+            if "RESOURCE_EXHAUSTED" in err or "quota" in err.lower() or "429" in err:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        "Gemini quota exceeded for current model. "
+                        "Try again after cooldown, switch GEMINI_MODEL, disable agent mode, or upgrade billing tier."
+                    ),
+                )
+            raise HTTPException(status_code=500, detail=f"Agent failed: {type(e).__name__}")
+    else:
+        store = open_store(DB_DIR, COLLECTION)
+        res = query(store, question, top_k=TOP_K)
+        docs = (res.get("documents") or [[]])[0]
+        metas = (res.get("metadatas") or [[]])[0]
+        context_chunks = [d for d in docs if d]
+
+        if not context_chunks:
+            content = "I don't know. No relevant context was found in the vector DB."
+        else:
+            try:
+                content = answer_question(question=question, context_chunks=context_chunks)
+            except Exception as e:
+                logger.exception("LLM call failed")
+                err = str(e)
+                if "RESOURCE_EXHAUSTED" in err or "quota" in err.lower() or "429" in err:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=(
+                            "Gemini quota exceeded for current model. "
+                            "Try again after cooldown, switch GEMINI_MODEL, or upgrade billing tier."
+                        ),
+                    )
+                raise HTTPException(status_code=500, detail=f"LLM call failed: {type(e).__name__}")
+
     content = _with_sources(content, metas)
+    if AGENT_ENABLED and agent_meta:
+        plan = agent_meta.get("plan")
+        tools_used = agent_meta.get("tools_used") or []
+        judge = agent_meta.get("judge") or {}
+        overall = judge.get("overall")
+        content += "\n\n---\n\nAgent:\n"
+        if plan:
+            content += f"- Plan: {str(plan).strip()}\n"
+        if tools_used:
+            content += f"- Tools used: {', '.join(str(t) for t in tools_used)}\n"
+        if overall is not None:
+            content += f"- Self-score (overall): {overall}\n"
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
@@ -205,6 +257,9 @@ async def chat_completions(request: Request) -> dict[str, Any]:
             "sources": metas,
         },
     }
+
+    if agent_meta:
+        resp["agent"] = agent_meta
 
     if not stream:
         # Clean up fields not used in non-streaming mode

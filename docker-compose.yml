@@ -10,9 +10,12 @@ services:
       - RAG_COLLECTION=${RAG_COLLECTION:-genai_databases}
       - RAG_TOP_K=${RAG_TOP_K:-6}
       - RAG_MODEL_ID=${RAG_MODEL_ID:-rag-gemini}
+      - RAG_AGENT=false
+      - AGENT_WORKSPACE=/workspace
       - PORT=8000
     volumes:
       - ./chroma_db:/data/chroma_db
+      - ./:/workspace:ro
     ports:
       - "8000:8000"
 
