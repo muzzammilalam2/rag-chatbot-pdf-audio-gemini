@@ -93,6 +93,44 @@ python -m src.chat \
 
 Then ask questions in the prompt. Type `exit` to quit.
 
+## 6) Browser UI (Open WebUI)
+
+This repo can be used from the browser via **Open WebUI**. It runs:
+- a small local HTTP API exposing an **OpenAI-compatible** endpoint backed by your RAG pipeline
+- Open WebUI pointed at that endpoint
+
+### Start (Docker)
+
+1) Ensure you have already ingested your data (step 4) so `chroma_db/` exists.
+
+2) Export your Gemini key:
+
+```bash
+export GEMINI_API_KEY="YOUR_KEY"
+```
+
+3) Start the API + UI:
+
+```bash
+docker compose up --build
+```
+
+4) Open:
+- Open WebUI: `http://localhost:3000`
+- API health: `http://localhost:8000/health`
+
+### Start (no Docker)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export GEMINI_API_KEY="YOUR_KEY"
+python -m src.api_server
+```
+
+Then run Open WebUI separately and point it to `http://localhost:8000/v1`.
+
 ## Troubleshooting
 
 - **ffmpeg not found**: install it (see Setup).

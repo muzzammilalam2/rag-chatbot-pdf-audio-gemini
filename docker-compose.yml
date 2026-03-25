@@ -1,0 +1,31 @@
+services:
+  rag-api:
+    build: .
+    container_name: rag-api
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
+      - GEMINI_EMBED_MODEL=${GEMINI_EMBED_MODEL:-gemini-embedding-001}
+      - RAG_DB_DIR=/data/chroma_db
+      - RAG_COLLECTION=${RAG_COLLECTION:-genai_databases}
+      - RAG_TOP_K=${RAG_TOP_K:-6}
+      - RAG_MODEL_ID=${RAG_MODEL_ID:-rag-gemini}
+      - PORT=8000
+    volumes:
+      - ./chroma_db:/data/chroma_db
+    ports:
+      - "8000:8000"
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: openwebui
+    environment:
+      - WEBUI_AUTH=false
+      - OPENAI_API_BASE_URL=http://rag-api:8000/v1
+      - OPENAI_API_KEY=local-anything
+      - DEFAULT_MODEL=${RAG_MODEL_ID:-rag-gemini}
+    ports:
+      - "3000:8080"
+    depends_on:
+      - rag-api
+
