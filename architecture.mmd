@@ -1,0 +1,81 @@
+flowchart LR
+  %% =========================
+  %% RAG Agent Architecture
+  %% Single diagram
+  %% =========================
+
+  %% ---------- Ingestion ----------
+  subgraph IN[Ingestion Pipeline]
+    P1[PDF Loader\nsrc/pdf_loader.py]
+    P2[Media Transcriber\nsrc/transcribe.py and Gemini Files API]
+    P3[Chunking\nsrc/chunking.py]
+    P4[Embeddings\nsrc/embeddings.py Gemini embed model]
+    P5[Persist Vector Store\nsrc/vectorstore.py]
+    P1 --> P3
+    P2 --> P3
+    P3 --> P4
+    P4 --> P5
+  end
+
+  %% ---------- Serving ----------
+  subgraph SRV[Serving Side FastAPI]
+    A1[rag-api\nsrc/api_server.py]
+    A2[OpenAI-compatible API\nPOST /v1/chat/completions]
+    A3[RAG retrieval\nvectorstore.query]
+    A4[RAG answer\nsrc/llm.py Gemini generate_content]
+    A5[Agent mode optional\nsrc/agent.py and src/agent_tools.py]
+    VDB[(Persistent vector store\n./chroma_db collection)]
+    GEM[(Gemini API)]
+
+    A2 --> A1
+    A3 --> VDB
+    A4 --> GEM
+  end
+
+  %% ---------- UI ----------
+  subgraph UI[Browser UI]
+    U1[Open WebUI Docker\nhttp://localhost:3000]
+    U2[Chat UI]
+    U2 --> A2
+  end
+
+  %% ---------- Agent Tool Loop ----------
+  subgraph AG[Agent Tool Switching ReAct-style]
+    D1[Agent decides next tool\nLLM outputs tool and tool_input]
+    T1[knowledge_search\nRAG semantic retrieval]
+    T2[file_inspector\npath-secured file read]
+    T3[list_directory\nrepo exploration]
+    T4[code_analyzer\nPython AST summary]
+    T5[summarize_text\nheuristic extraction]
+    O1[Agent observes results and self-reflects]
+    F1[Final synthesis Sources]
+    J1[LLM-as-Judge score\n0.0-1.0 metrics]
+
+    %% Loop arrows
+    D1 --> T1
+    D1 --> T2
+    D1 --> T3
+    D1 --> T4
+    D1 --> T5
+    T1 --> O1
+    T2 --> O1
+    T3 --> O1
+    T4 --> O1
+    T5 --> O1
+    O1 --> D1
+    O1 --> F1
+    F1 --> J1
+  end
+
+  %% ---------- Connect agent to serving ----------
+  A1 --> A5
+  A5 --> A3
+  A5 --> A4
+  A1 --> A3
+  A1 --> A4
+
+  %% ---------- Sources rendering ----------
+  F1 --> A1
+  J1 --> A1
+  A1 --> U2
+
